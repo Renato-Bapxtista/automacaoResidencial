@@ -44,15 +44,13 @@ class Lamp:
     def on(self):
         self.state.on()
         self.phase_1.on()
-        self.phase_2.on()
-        self._alerta("Ligada")
+        self.phase_2.on()        
 
     def off(self):
         self.state.off()
         self.phase_1.off()
         self.phase_2.off()
-        self._alerta("Desligada")
-
+        
     def toggle(self):
         if self.state.value:
             self.off()
@@ -87,7 +85,7 @@ class Led:
 #classe responsavel pelo gerenciamento de botao
 #imports da classe
 
-class LightSwitch:
+class LightSwitch1:
     #inicialização da Classe
     def __init__(self, pin, callback=None, pull=Pin.PULL_UP):
         self.switch = Pin(pin, Pin.IN, pull)
@@ -102,6 +100,26 @@ class LightSwitch:
             self.last_state.value == self.switch.value()
             calback()
 ###########################################################################################################
+#classe responsavel pelo gerenciamento de tecla Parede
+#imports da classe
+
+class LightSwitch2:
+    #inicialização da Classe
+    def __init__(self, pin, callback=None, pull=Pin.PULL_UP):
+        self.switch = Pin(pin, Pin.IN, pull)
+        self.callback = callback
+        self.last_state = State(1)
+        
+    #pressionamento switch
+    def pressBTN(self, callback):    
+        sleep(0.05)  # debounce
+        
+        if self.switch.value() != self.last_state.value:            
+            self.last_state.toggle()
+            callback()
+            
+            
+#########################################################################################################
 #classe responsavel pela leitura de um sensor MQ2
 #imports da classe
 import urequests
