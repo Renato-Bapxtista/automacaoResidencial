@@ -106,7 +106,9 @@ timer_mqtt_publish.init(period=600000, mode=Timer.PERIODIC, callback=lambda t: m
 #estados das lampadas
 lampada_cozinha = lamp_cozinha.state.value
 lampada_sala = lamp_sala.state.value
-lampada_quarto = lamp_quarto.state.value 
+lampada_quarto = lamp_quarto.state.value
+
+mqtt_pubolish()
 #Loop principal
 try:
     while True:
