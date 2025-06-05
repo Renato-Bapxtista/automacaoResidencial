@@ -1,28 +1,28 @@
 import _thread
-from components import Lamp, LightSwitch2, DHT11Sensor, MQ2Sensor, OledManager
+from components import Lamp, LightSwitch1, DHT11Sensor, MQ2Sensor, OledManager
 from web_server import WebServer
 from mqtt_manager import MQTTManager
 import time
-from machine import RTC, Timer
+from machine import Timer
 import config
 
-#Inicializa o OLED
+# Inicializa o OLED
 oled = OledManager()
 
-#Lâmpadas
+# Lâmpadas
 lamp_cozinha = Lamp(4, 16)
 lamp_quarto = Lamp(17, 5)
 lamp_sala = Lamp(18, 19)
 
-#Interruptores
-switch_cozinha = LightSwitch2(13)
-switch_quarto = LightSwitch2(12)
-switch_sala = LightSwitch2(14)
+# Interruptores
+switch_cozinha = LightSwitch1(13)
+switch_quarto = LightSwitch1(12)
+switch_sala = LightSwitch1(14)
 
-#Sensor DHT11 no quarto
+# Sensor DHT11 no quarto
 sensor_dht = DHT11Sensor(pin=15)
 
-#Sensor de gás na cozinha
+# Sensor de gás na cozinha
 API_KEY = config.API_KEY
 NUMERO = config.NUMERO
 
@@ -34,7 +34,26 @@ sensor_gas = MQ2Sensor(
     numero=NUMERO
 )
 
-#Thread para botões físicos
+# Variáveis para armazenar últimos estados
+last_status = {
+    "cozinha": None,
+    "sala": None,
+    "quarto": None,
+    "temperatura": None,
+    "umidade": None,
+    "gas_ppm": None,
+    "gas_nivel": None,
+    "gas_digital": None
+}
+
+# Função para publicação apenas quando houver mudança
+def mqtt_publish_if_changed(topic, value, key):
+    if last_status.get(key) != value:
+        mqtt.publish(topic, value)
+        print(f"[MQTT] Publicado {topic}: {value}")
+        last_status[key] = value
+
+# Thread para ouvir botões físicos
 def ouvindoBtn():
     while True:
         switch_cozinha.pressBTN(lamp_cozinha.toggle)
@@ -43,13 +62,13 @@ def ouvindoBtn():
 
 _thread.start_new_thread(ouvindoBtn, ())
 
-#Wi-Fi
+# Wi-Fi
 SSID = config.WIFI_SSID
 PASSWORD = config.WIFI_PASSWORD
 server = WebServer()
 server.connect_wifi(SSID, PASSWORD)
 
-#MQTT
+# MQTT
 MQTT_BROKER = config.MQTT_BROKER
 CLIENT_ID = config.MQTT_CLIENT_ID
 
@@ -61,15 +80,15 @@ def mqtt_callback(topic, msg):
 
     if topic == 'quarto/lamp/cmd':
         lamp_quarto.on() if msg == 'on' else lamp_quarto.off()
-        mqtt.publish('quarto/status', 'on' if lamp_quarto.state.value else 'off')
+        mqtt_publish_if_changed('quarto/status', 'on' if lamp_quarto.state.value else 'off', 'quarto')
 
     elif topic == 'sala/lamp/cmd':
         lamp_sala.on() if msg == 'on' else lamp_sala.off()
-        mqtt.publish('sala/status', 'on' if lamp_sala.state.value else 'off')
+        mqtt_publish_if_changed('sala/status', 'on' if lamp_sala.state.value else 'off', 'sala')
 
     elif topic == 'cozinha/lamp/cmd':
         lamp_cozinha.on() if msg == 'on' else lamp_cozinha.off()
-        mqtt.publish('cozinha/status', 'on' if lamp_cozinha.state.value else 'off')
+        mqtt_publish_if_changed('cozinha/status', 'on' if lamp_cozinha.state.value else 'off', 'cozinha')
 
 mqtt = MQTTManager(
     client_id=CLIENT_ID,
@@ -82,39 +101,18 @@ mqtt.subscribe('cozinha/lamp/cmd')
 mqtt.subscribe('quarto/lamp/cmd')
 mqtt.subscribe('sala/lamp/cmd')
 
-#Tela de inicialização
+# Tela de inicialização no OLED
 oled.limpar()
 oled.mostrar_imagem('logo.pbm', w=64, h=64, x=32, y=0, tempo=3)
 oled.display_texto(["Automação ON", "Wi-Fi OK", "MQTT OK"])
 
-#função pra publicar no mqtt
-def mqtt_pubolish():
-    mqtt.publish('cozinha/status', 'on' if lamp_cozinha.state.value else 'off')
-    mqtt.publish('quarto/status', 'on' if lamp_quarto.state.value else 'off')
-    mqtt.publish('sala/status', 'on' if lamp_sala.state.value else 'off')
-
-    mqtt.publish('quarto/temperatura', dht['temperatura'])
-    mqtt.publish('quarto/umidade', dht['umidade'])
-
-    mqtt.publish('cozinha/gas', gas['ppm'])
-    mqtt.publish('cozinha/gas/nivel', gas['nivel'])
-    mqtt.publish('cozinha/gas/digital', gas['alerta_whatsapp'])
-    
-timer_mqtt_publish = Timer(1)
-timer_mqtt_publish.init(period=600000, mode=Timer.PERIODIC, callback=lambda t: mqtt_pubolish())
-
-#estados das lampadas
-lampada_cozinha = lamp_cozinha.state.value
-lampada_sala = lamp_sala.state.value
-lampada_quarto = lamp_quarto.state.value
-
-mqtt_pubolish()
-#Loop principal
+# Loop principal
 try:
     while True:
         dht = sensor_dht.ler()
         gas = sensor_gas.verificar_alerta()
-        
+
+        # Atualiza display OLED
         oled.display_texto([
             f"Temp: {dht['temperatura']}C",
             f"Umid: {dht['umidade']}%",
@@ -122,23 +120,19 @@ try:
             f"Nivel: {gas['nivel']}"
         ])
 
-        mqtt.check_msg()
-        #mudança de estado das lampadas
-        if lamp_cozinha.state.value != lampada_cozinha:
-            lampada_cozinha = lamp_cozinha.state.value
-            mqtt.publish('cozinha/status', 'on' if lamp_cozinha.state.value else 'off')
-            
-        if lamp_sala.state.value != lampada_sala:
-            lampada_sala = lamp_sala.state.value
-            mqtt.publish('sala/status', 'on' if lamp_sala.state.value else 'off')
-        
-        if lamp_quarto.state.value != lampada_quarto:
-            lampada_quarto = lamp_quarto.state.value
-            mqtt.publish('quarto/status', 'on' if lamp_quarto.state.value else 'off')
-            
-        if gas['alerta_whatsapp'] == 'on':
-            mqtt.publish('cozinha/gas/digital', gas['alerta_whatsapp'])
+        # Publica estados das lâmpadas
+        mqtt_publish_if_changed('cozinha/status', 'on' if lamp_cozinha.state.value else 'off', 'cozinha')
+        mqtt_publish_if_changed('sala/status', 'on' if lamp_sala.state.value else 'off', 'sala')
+        mqtt_publish_if_changed('quarto/status', 'on' if lamp_quarto.state.value else 'off', 'quarto')
 
+        # Publica sensores
+        mqtt_publish_if_changed('quarto/temperatura', dht['temperatura'], 'temperatura')
+        mqtt_publish_if_changed('quarto/umidade', dht['umidade'], 'umidade')
+        mqtt_publish_if_changed('cozinha/gas', gas['ppm'], 'gas_ppm')
+        mqtt_publish_if_changed('cozinha/gas/nivel', gas['nivel'], 'gas_nivel')
+        mqtt_publish_if_changed('cozinha/gas/digital', gas['alerta_whatsapp'], 'gas_digital')
+
+        mqtt.check_msg()
         time.sleep(1)
 
 finally:
